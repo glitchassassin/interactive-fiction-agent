@@ -1,5 +1,6 @@
 import { Dialogue } from "../models/dialogue.js";
 import { sendCommand, startGame } from "../tools/ifapi.js";
+import winston from "winston";
 
 /**
  * Configuration options for the BaseWorkflow
@@ -22,6 +23,18 @@ export interface BaseWorkflowConfig {
    * @default 50
    */
   dialogueLimit?: number;
+
+  /**
+   * Custom display name for the workflow instance
+   * If not provided, one will be generated based on the class name and configuration
+   */
+  displayName?: string;
+
+  /**
+   * Custom logger instance
+   * If not provided, a default console logger will be used
+   */
+  logger?: winston.Logger;
 }
 
 /**
@@ -49,6 +62,16 @@ export abstract class BaseWorkflow {
   private readonly dialogueLimit: number;
 
   /**
+   * Configuration parts for display name generation
+   */
+  private readonly configParts: string[];
+
+  /**
+   * Logger instance for this workflow
+   */
+  protected readonly logger: winston.Logger;
+
+  /**
    * Creates a new BaseWorkflow instance
    * @param config Configuration options for the workflow
    */
@@ -56,6 +79,66 @@ export abstract class BaseWorkflow {
     this.maxIterations = config.maxIterations ?? 100;
     this.gamePath = config.gamePath ?? "zork1.z3";
     this.dialogueLimit = config.dialogueLimit ?? 50;
+
+    // Store configuration parts for display name generation
+    this.configParts = [];
+
+    if (config.maxIterations && config.maxIterations !== 100) {
+      this.configParts.push(`iterations=${config.maxIterations}`);
+    }
+
+    if (config.gamePath && config.gamePath !== "zork1.z3") {
+      this.configParts.push(`game=${config.gamePath}`);
+    }
+
+    if (config.dialogueLimit && config.dialogueLimit !== 50) {
+      this.configParts.push(`dialogueLimit=${config.dialogueLimit}`);
+    }
+
+    // Initialize logger
+    this.logger = config.logger ?? createDefaultLogger();
+  }
+
+  /**
+   * The display name for this workflow instance, including configuration details
+   */
+  get displayName(): string {
+    if (this.configParts.length > 0) {
+      return `${this.name} (${this.configParts.join(", ")})`;
+    }
+    return this.name;
+  }
+
+  /**
+   * Get the maximum number of iterations
+   */
+  get getMaxIterations(): number {
+    return this.maxIterations;
+  }
+
+  /**
+   * Get the game path
+   */
+  get getGamePath(): string {
+    return this.gamePath;
+  }
+
+  /**
+   * Get the dialogue limit
+   */
+  get getDialogueLimit(): number {
+    return this.dialogueLimit;
+  }
+
+  /**
+   * Get the current configuration as a BaseWorkflowConfig object
+   */
+  get config(): BaseWorkflowConfig {
+    return {
+      maxIterations: this.maxIterations,
+      gamePath: this.gamePath,
+      dialogueLimit: this.dialogueLimit,
+    };
   }
 
   /**
@@ -69,8 +152,13 @@ export abstract class BaseWorkflow {
    * Runs the interactive fiction game with the implemented game loop
    * @returns A promise resolving to the final score and moves count
    */
-  public async run(): Promise<{ score: number; moves: number }> {
+  public async run(): Promise<{
+    score: number;
+    moves: number;
+    gameEnded: boolean;
+  }> {
     try {
+      this.logger.info(`Starting game: ${this.gamePath}`);
       const initialGameState = await startGame(this.gamePath);
       const sessionId = initialGameState.sessionId;
       await sendCommand(sessionId, "verbose");
@@ -79,11 +167,12 @@ export abstract class BaseWorkflow {
       // Create a dialogue instance with the configured message limit
       const dialogue = new Dialogue(this.dialogueLimit);
       dialogue.user(text);
-      console.log(text);
+      this.logger.info(text);
 
       // Initialize score and moves
       let score = 0;
       let moves = 0;
+      let gameEnded = false;
 
       for (let i = 0; i < this.maxIterations; i++) {
         // Parse score and moves if available
@@ -100,12 +189,12 @@ export abstract class BaseWorkflow {
 
         // generate next command based on the current game state
         const command = await this.gameLoop(dialogue);
-        console.log(">", command);
+        this.logger.info(`> ${command}`);
 
         // send command and get response
         ({ text } = await sendCommand(sessionId, command));
         dialogue.user(text);
-        console.log(text + "\n");
+        this.logger.info(`${text}\n`);
 
         // check if game ended
         const gameEndPatterns = [
@@ -117,7 +206,8 @@ export abstract class BaseWorkflow {
         ];
 
         if (gameEndPatterns.some((pattern) => pattern.test(text))) {
-          console.log("Game ended");
+          this.logger.info("Game ended");
+          gameEnded = true;
           break;
         }
       }
@@ -134,11 +224,28 @@ export abstract class BaseWorkflow {
         moves = parseInt(finalMovesMatch[1], 10);
       }
 
-      console.log(`Game ended with score: ${score}, moves: ${moves}`);
-      return { score, moves };
+      this.logger.info(`Game ended with score: ${score}, moves: ${moves}`);
+      return { score, moves, gameEnded };
     } catch (error) {
-      console.error("Error during initialization:", error);
-      return { score: 0, moves: 0 };
+      this.logger.error("Error during game execution:", error);
+      return { score: 0, moves: 0, gameEnded: false };
     }
   }
+}
+
+/**
+ * Creates a default logger that outputs to console
+ * @returns A winston logger instance
+ */
+function createDefaultLogger(): winston.Logger {
+  return winston.createLogger({
+    level: "info",
+    format: winston.format.combine(
+      winston.format.timestamp(),
+      winston.format.printf(({ timestamp, level, message }) => {
+        return `${timestamp} [${level}]: ${message}`;
+      })
+    ),
+    transports: [new winston.transports.Console()],
+  });
 }

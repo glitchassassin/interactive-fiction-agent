@@ -6,13 +6,15 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "tsx src/index.ts",
+    "start:parallel": "tsx src/index.ts --parallel",
+    "start:parallel:2": "tsx src/index.ts --parallel --max-concurrent 2",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
-  "description": "",
+  "license": "MIT",
+  "description": "An agent system for playing interactive fiction games using different AI-powered workflows",
   "dependencies": {
     "@ai-sdk/openai": "^1.2.1",
     "@libsql/client": "^0.14.0",
@@ -23,6 +25,7 @@
     "ollama-ai-provider": "^1.2.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "winston": "^3.17.0"
   }
 }
