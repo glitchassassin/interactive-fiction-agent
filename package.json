@@ -1,0 +1,28 @@
+{
+  "name": "interactive-fiction-agent",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@ai-sdk/openai": "^1.2.1",
+    "@libsql/client": "^0.14.0",
+    "@types/node": "^22.13.9",
+    "@types/uuid": "^10.0.0",
+    "ai": "^4.1.54",
+    "dotenv": "^16.4.7",
+    "ollama-ai-provider": "^1.2.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "uuid": "^11.1.0"
+  }
+}
