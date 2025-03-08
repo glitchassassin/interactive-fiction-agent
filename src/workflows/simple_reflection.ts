@@ -1,14 +1,38 @@
-import { generateObject, generateText } from "ai";
+import { generateObject, generateText, LanguageModelV1 } from "ai";
 import { Dialogue } from "../models/dialogue.js";
-import { genericSolver } from "../agents/generic-solver.js";
 import { z } from "zod";
-import { BaseWorkflow } from "./base.js";
+import { BaseWorkflow, BaseWorkflowConfig } from "./base.js";
+import { openai } from "@ai-sdk/openai";
+import { genericSolverSystemPrompt } from "../prompts/generic-solver.js";
 
 /**
  * A workflow that adds reflection to the decision-making process
  */
 export class ReflectionWorkflow extends BaseWorkflow {
   readonly name = "Reflection Workflow";
+  private reflectionModel: LanguageModelV1;
+  private commandModel: LanguageModelV1;
+
+  constructor({
+    reflectionModel,
+    commandModel,
+    ...config
+  }: BaseWorkflowConfig & {
+    reflectionModel: LanguageModelV1;
+    commandModel: LanguageModelV1;
+  }) {
+    super(config);
+    this.reflectionModel = reflectionModel;
+    this.commandModel = commandModel;
+  }
+
+  get displayName(): string {
+    return `${this.name} (${this.reflectionModel.modelId} -> ${this.commandModel.modelId})`;
+  }
+
+  getLogPrefix(): string {
+    return `reflection_${this.reflectionModel.modelId}_${this.commandModel.modelId}`;
+  }
 
   /**
    * Generates the next command based on the current dialogue
@@ -18,7 +42,7 @@ export class ReflectionWorkflow extends BaseWorkflow {
   protected async gameLoop(dialogue: Dialogue): Promise<string> {
     // First reflect on the current state
     const reflection = await this.reflect(dialogue);
-    console.log("Reflection:", reflection);
+    this.logger?.info("Reflection:\n" + reflection);
 
     // Then generate the next command based on this reflection
     return await this.generateCommand(dialogue);
@@ -30,16 +54,20 @@ export class ReflectionWorkflow extends BaseWorkflow {
    * @returns A promise resolving to the next command
    */
   private async generateCommand(dialogue: Dialogue): Promise<string> {
-    const result = await generateObject({
-      ...genericSolver,
-      system: undefined,
-      schema: z.object({
-        command: z.string().describe("The next command to execute"),
-      }),
-      messages: dialogue.messages,
+    const result = await generateText({
+      model: this.commandModel,
+      messages: [
+        ...dialogue.messages.slice(-10),
+        {
+          role: "user",
+          content: `Based on the context, pick ONE command to execute (like 'inventory', 'look', 'go north', etc.).
+            Return the command exactly as if you were typing it into the game. Return ONLY the command.
+            Do not include quotes or punctuation.`,
+        },
+      ],
     });
-    dialogue.assistant(result.object.command);
-    return result.object.command;
+    dialogue.assistant(result.text);
+    return result.text;
   }
 
   /**
@@ -49,7 +77,8 @@ export class ReflectionWorkflow extends BaseWorkflow {
    */
   private async reflect(dialogue: Dialogue): Promise<string> {
     const result = await generateText({
-      ...genericSolver,
+      model: this.reflectionModel,
+      system: genericSolverSystemPrompt,
       messages: [
         ...dialogue.messages,
         {

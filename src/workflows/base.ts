@@ -1,6 +1,9 @@
 import { Dialogue } from "../models/dialogue.js";
 import { sendCommand, startGame } from "../tools/ifapi.js";
 import winston from "winston";
+import path from "path";
+import fs from "fs";
+import { ulid } from "ulid";
 
 /**
  * Configuration options for the BaseWorkflow
@@ -35,6 +38,12 @@ export interface BaseWorkflowConfig {
    * If not provided, a default console logger will be used
    */
   logger?: winston.Logger;
+
+  /**
+   * Path to the log file
+   * If provided, logs will be written to this file
+   */
+  logPath?: string;
 }
 
 /**
@@ -67,9 +76,14 @@ export abstract class BaseWorkflow {
   private readonly configParts: string[];
 
   /**
+   * Path to the log file for this workflow
+   */
+  protected logPath?: string;
+
+  /**
    * Logger instance for this workflow
    */
-  protected readonly logger: winston.Logger;
+  protected logger?: winston.Logger;
 
   /**
    * Creates a new BaseWorkflow instance
@@ -95,8 +109,11 @@ export abstract class BaseWorkflow {
       this.configParts.push(`dialogueLimit=${config.dialogueLimit}`);
     }
 
-    // Initialize logger
-    this.logger = config.logger ?? createDefaultLogger();
+    this.logPath = config.logPath;
+  }
+
+  getLogPrefix() {
+    return `${this.constructor.name}`;
   }
 
   /**
@@ -138,6 +155,7 @@ export abstract class BaseWorkflow {
       maxIterations: this.maxIterations,
       gamePath: this.gamePath,
       dialogueLimit: this.dialogueLimit,
+      displayName: this.displayName,
     };
   }
 
@@ -157,6 +175,10 @@ export abstract class BaseWorkflow {
     moves: number;
     gameEnded: boolean;
   }> {
+    // Initialize logger
+    this.logPath ??= `./logs/${this.getLogPrefix()}_${ulid()}.log`;
+    this.logger ??= createDefaultLogger(this.logPath);
+
     try {
       this.logger.info(`Starting game: ${this.gamePath}`);
       const initialGameState = await startGame(this.gamePath);
@@ -234,10 +256,15 @@ export abstract class BaseWorkflow {
 }
 
 /**
- * Creates a default logger that outputs to console
+ * Creates a default logger that outputs to console and optionally to a file
+ * @param logPath Optional path to log file
  * @returns A winston logger instance
  */
-function createDefaultLogger(): winston.Logger {
+function createDefaultLogger(logPath: string): winston.Logger {
+  // Ensure the directory exists
+  const logDir = path.dirname(logPath);
+  fs.mkdirSync(logDir, { recursive: true });
+
   return winston.createLogger({
     level: "info",
     format: winston.format.combine(
@@ -246,6 +273,16 @@ function createDefaultLogger(): winston.Logger {
         return `${timestamp} [${level}]: ${message}`;
       })
     ),
-    transports: [new winston.transports.Console()],
+    transports: [
+      new winston.transports.File({
+        filename: logPath,
+        format: winston.format.combine(
+          winston.format.timestamp(),
+          winston.format.printf(({ timestamp, level, message }) => {
+            return `${timestamp} [${level}]: ${message}`;
+          })
+        ),
+      }),
+    ],
   });
 }

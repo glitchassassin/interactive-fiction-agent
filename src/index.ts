@@ -3,16 +3,42 @@ import { SimpleWorkflow } from "./workflows/simple.js";
 import { ReflectionWorkflow } from "./workflows/simple_reflection.js";
 import { WorkflowRunner } from "./runner.js";
 import winston from "winston";
+import { ollama } from "ollama-ai-provider";
 
 // Load environment variables
 dotenv.config();
+
+const MISTRAL = ollama("mistral");
+const DEEPSEEK_R1 = ollama("deepseek-r1");
+const DEEPSEEK_R1_14B = ollama("deepseek-r1:14b");
 
 async function main() {
   // Create workflow instances with different configurations
   const workflows = [
     // Default configurations
-    new SimpleWorkflow(),
-    new ReflectionWorkflow(),
+    // new SimpleWorkflow(),
+    // new ReflectionWorkflow(),
+    new SimpleWorkflow({
+      commandModel: MISTRAL,
+    }),
+    new ReflectionWorkflow({
+      reflectionModel: MISTRAL,
+      commandModel: MISTRAL,
+    }),
+    new SimpleWorkflow({
+      commandModel: DEEPSEEK_R1,
+    }),
+    new ReflectionWorkflow({
+      reflectionModel: DEEPSEEK_R1,
+      commandModel: DEEPSEEK_R1,
+    }),
+    new SimpleWorkflow({
+      commandModel: DEEPSEEK_R1_14B,
+    }),
+    new ReflectionWorkflow({
+      reflectionModel: ollama("deepseek-r1:14b"),
+      commandModel: ollama("deepseek-r1:14b"),
+    }),
 
     // Custom configurations
     // new SimpleWorkflow({
@@ -65,9 +91,10 @@ async function main() {
   const totalTime = Date.now() - startTime;
 
   // Display results table
-  mainLogger.info("\nWorkflow Comparison Results:");
-  mainLogger.info("==============================");
-  console.log(WorkflowRunner.formatResultsTable(results));
+  mainLogger.info(`
+Workflow Comparison Results:
+==============================
+${WorkflowRunner.formatResultsTable(results)}`);
 
   // Find the best performing workflow by score
   const bestByScore = results.reduce((best, current) =>
@@ -102,13 +129,6 @@ async function main() {
   mainLogger.info(
     `Total execution time: ${totalTime}ms (${(totalTime / 1000).toFixed(2)}s)`
   );
-
-  // Log paths to log files
-  mainLogger.info("\nLog Files:");
-  mainLogger.info("==============================");
-  for (const result of results) {
-    mainLogger.info(`${result.displayName}: ${result.logPath}`);
-  }
 }
 
 main().catch(console.error);

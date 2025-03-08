@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import winston from "winston";
-import { BaseWorkflow, BaseWorkflowConfig } from "./workflows/base.js";
+import { BaseWorkflow } from "./workflows/base.js";
 
 /**
  * Result of a workflow run including performance metrics
@@ -19,8 +19,6 @@ export interface WorkflowResult {
   completed: boolean;
   /** Total execution time in milliseconds */
   executionTimeMs: number;
-  /** Path to the log file */
-  logPath: string;
 }
 
 /**
@@ -45,8 +43,6 @@ export interface RunnerOptions {
 export class WorkflowRunner {
   private readonly workflows: BaseWorkflow[];
   private readonly options: Required<RunnerOptions>;
-  private readonly loggers: Map<BaseWorkflow, winston.Logger> = new Map();
-  private readonly logPaths: Map<BaseWorkflow, string> = new Map();
   private readonly mainLogger: winston.Logger;
 
   /**
@@ -69,13 +65,6 @@ export class WorkflowRunner {
       fs.mkdirSync(this.options.logDir, { recursive: true });
     }
 
-    // Create loggers for each workflow
-    for (const workflow of this.workflows) {
-      const logPath = this.createLogPath(workflow);
-      this.logPaths.set(workflow, logPath);
-      this.loggers.set(workflow, this.createLogger(workflow, logPath));
-    }
-
     // Create main logger
     this.mainLogger = winston.createLogger({
       level: this.options.logLevel,
@@ -86,63 +75,6 @@ export class WorkflowRunner {
         })
       ),
       transports: [new winston.transports.Console()],
-    });
-  }
-
-  /**
-   * Creates a log file path for a workflow
-   * @param workflow The workflow to create a log path for
-   * @returns The path to the log file
-   */
-  private createLogPath(workflow: BaseWorkflow): string {
-    const timestamp = new Date().toISOString().replace(/:/g, "-");
-    const safeDisplayName = workflow.displayName.replace(
-      /[^a-zA-Z0-9_-]/g,
-      "_"
-    );
-    const filename = `${safeDisplayName}_${timestamp}.log`;
-    return path.join(this.options.logDir, filename);
-  }
-
-  /**
-   * Creates a logger for a workflow
-   * @param workflow The workflow to create a logger for
-   * @param logPath The path to the log file
-   * @returns A winston logger instance
-   */
-  private createLogger(
-    workflow: BaseWorkflow,
-    logPath: string
-  ): winston.Logger {
-    const transports: winston.transport[] = [
-      new winston.transports.Console({
-        format: winston.format.combine(
-          winston.format.colorize(),
-          winston.format.printf(({ level, message }) => {
-            return `[${workflow.displayName}] ${level}: ${message}`;
-          })
-        ),
-      }),
-    ];
-
-    // Add file transport if saving logs
-    if (this.options.saveLogs) {
-      transports.push(
-        new winston.transports.File({
-          filename: logPath,
-          format: winston.format.combine(
-            winston.format.timestamp(),
-            winston.format.printf(({ timestamp, level, message }) => {
-              return `${timestamp} [${level}]: ${message}`;
-            })
-          ),
-        })
-      );
-    }
-
-    return winston.createLogger({
-      level: this.options.logLevel,
-      transports,
     });
   }
 
@@ -224,23 +156,14 @@ export class WorkflowRunner {
    * @returns The workflow result
    */
   private async runWorkflow(workflow: BaseWorkflow): Promise<WorkflowResult> {
-    const logger = this.loggers.get(workflow)!;
-    const logPath = this.logPaths.get(workflow)!;
-
     this.mainLogger.info(`Running workflow: ${workflow.displayName}`);
 
     const startTime = Date.now();
     let completed = true;
 
     try {
-      // Create a new instance of the workflow with the custom logger
-      const workflowWithLogger = this.createWorkflowWithLogger(
-        workflow,
-        logger
-      );
-
       // Run the workflow
-      const { score, moves, gameEnded } = await workflowWithLogger.run();
+      const { score, moves, gameEnded } = await workflow.run();
       const executionTimeMs = Date.now() - startTime;
 
       // Create result object
@@ -251,7 +174,6 @@ export class WorkflowRunner {
         moves,
         completed: gameEnded,
         executionTimeMs,
-        logPath,
       };
 
       this.mainLogger.info(`Completed workflow: ${workflow.displayName}`);
@@ -275,35 +197,8 @@ export class WorkflowRunner {
         moves: 0,
         completed: false,
         executionTimeMs: Date.now() - startTime,
-        logPath,
       };
     }
-  }
-
-  /**
-   * Creates a new instance of a workflow with a custom logger
-   * This uses the constructor of the workflow's class to create a new instance
-   * @param workflow The workflow to create a new instance of
-   * @param logger The logger to inject
-   * @returns A new workflow instance with the custom logger
-   */
-  private createWorkflowWithLogger(
-    workflow: BaseWorkflow,
-    logger: winston.Logger
-  ): BaseWorkflow {
-    // Get the constructor of the workflow's class
-    const WorkflowClass = workflow.constructor as new (
-      config: BaseWorkflowConfig
-    ) => BaseWorkflow;
-
-    // Create a new instance with the same configuration but with the custom logger
-    return new WorkflowClass({
-      maxIterations: workflow.getMaxIterations,
-      gamePath: workflow.getGamePath,
-      dialogueLimit: workflow.getDialogueLimit,
-      displayName: workflow.displayName,
-      logger,
-    });
   }
 
   /**
