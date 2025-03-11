@@ -2,7 +2,6 @@ import { generateObject, LanguageModelV1 } from "ai";
 import { Dialogue } from "../models/dialogue.js";
 import { z } from "zod";
 import { BaseWorkflow, BaseWorkflowConfig } from "./base.js";
-import { openai } from "@ai-sdk/openai";
 import { genericSolverSystemPrompt } from "../prompts/generic-solver.js";
 
 /**
@@ -20,6 +19,10 @@ export class SimpleWorkflow extends BaseWorkflow {
   }) {
     super(config);
     this.commandModel = commandModel;
+  }
+
+  get displayName(): string {
+    return `${this.name} (${this.commandModel.modelId})`;
   }
 
   getLogPrefix(): string {
@@ -41,6 +44,7 @@ export class SimpleWorkflow extends BaseWorkflow {
       messages: dialogue.messages,
     });
     dialogue.assistant(result.object.command);
+    this.trackModelUsage(this.commandModel.modelId, result.usage);
     return result.object.command;
   }
 }

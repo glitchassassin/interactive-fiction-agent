@@ -1,7 +1,11 @@
 import fs from "fs";
 import path from "path";
 import winston from "winston";
-import { BaseWorkflow } from "./workflows/base.js";
+import {
+  BaseWorkflow,
+  LanguageModelUsage,
+  DEFAULT_MODEL_PRICING,
+} from "./workflows/base.js";
 
 /**
  * Result of a workflow run including performance metrics
@@ -19,6 +23,10 @@ export interface WorkflowResult {
   completed: boolean;
   /** Total execution time in milliseconds */
   executionTimeMs: number;
+  /** Language model usage statistics */
+  usage: LanguageModelUsage;
+  /** Estimated cost in USD */
+  estimatedCost: number;
 }
 
 /**
@@ -163,8 +171,11 @@ export class WorkflowRunner {
 
     try {
       // Run the workflow
-      const { score, moves, gameEnded } = await workflow.run();
+      const { score, moves, gameEnded, usage } = await workflow.run();
       const executionTimeMs = Date.now() - startTime;
+
+      // Calculate estimated cost
+      const estimatedCost = workflow.calculateTotalCost();
 
       // Create result object
       const result: WorkflowResult = {
@@ -174,11 +185,15 @@ export class WorkflowRunner {
         moves,
         completed: gameEnded,
         executionTimeMs,
+        usage,
+        estimatedCost,
       };
 
       this.mainLogger.info(`Completed workflow: ${workflow.displayName}`);
       this.mainLogger.info(
-        `Score: ${score}, Moves: ${moves}, Time: ${executionTimeMs}ms`
+        `Score: ${score}, Moves: ${moves}, Time: ${executionTimeMs}ms, Tokens: ${
+          usage.totalTokens
+        }, Cost: $${estimatedCost.toFixed(6)}`
       );
 
       return result;
@@ -197,6 +212,8 @@ export class WorkflowRunner {
         moves: 0,
         completed: false,
         executionTimeMs: Date.now() - startTime,
+        usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        estimatedCost: 0,
       };
     }
   }
@@ -214,6 +231,10 @@ export class WorkflowRunner {
       { header: "Moves", width: 10 },
       { header: "Completed", width: 12 },
       { header: "Time", width: 15 },
+      { header: "Prompt Tokens", width: 15 },
+      { header: "Compl. Tokens", width: 15 },
+      { header: "Total Tokens", width: 15 },
+      { header: "Est. Cost ($)", width: 12 },
     ];
 
     // Create header row
@@ -245,6 +266,10 @@ export class WorkflowRunner {
         result.moves.toString().padEnd(columns[2].width),
         (result.completed ? "Yes" : "No").padEnd(columns[3].width),
         formatTime(result.executionTimeMs).padEnd(columns[4].width),
+        result.usage.promptTokens.toLocaleString().padEnd(columns[5].width),
+        result.usage.completionTokens.toLocaleString().padEnd(columns[6].width),
+        result.usage.totalTokens.toLocaleString().padEnd(columns[7].width),
+        result.estimatedCost.toFixed(6).padEnd(columns[8].width),
       ].join(" | ");
     });
 

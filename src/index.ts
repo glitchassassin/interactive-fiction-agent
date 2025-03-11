@@ -4,51 +4,76 @@ import { ReflectionWorkflow } from "./workflows/simple_reflection.js";
 import { WorkflowRunner } from "./runner.js";
 import winston from "winston";
 import { ollama } from "ollama-ai-provider";
+import { openai } from "@ai-sdk/openai";
+import { anthropic } from "@ai-sdk/anthropic";
+import { xai } from "@ai-sdk/xai";
 
 // Load environment variables
 dotenv.config();
 
+// Ollama models
 const MISTRAL = ollama("mistral");
-const DEEPSEEK_R1 = ollama("deepseek-r1");
 const DEEPSEEK_R1_14B = ollama("deepseek-r1:14b");
+
+// OpenAI models
+// $2.50 / $10.00 per million tokens in/out
+const GPT_4O = openai("gpt-4o");
+// $0.150 / $0.600 per million tokens in/out
+const GPT_4O_MINI = openai("gpt-4o-mini");
+// $1.10 / $4.40 per million tokens in/out
+const GPT_O3_MINI = openai("o3-mini");
+
+// Anthropic models
+// $0.80 / $4.00 per million tokens in/out
+const CLAUDE_3_HAIKU = anthropic("claude-3-5-haiku-20241022");
+// $3.00 / $15.00	 per million tokens in/out
+const CLAUDE_3_SONNET = anthropic("claude-3-7-sonnet-20250219");
+
+// Grok models
+// $2.00 / $10.00 per million tokens in/out
+const GROK_2 = xai("grok-2-1212");
 
 async function main() {
   // Create workflow instances with different configurations
   const workflows = [
-    // Default configurations
-    // new SimpleWorkflow(),
-    // new ReflectionWorkflow(),
-    new SimpleWorkflow({
-      commandModel: MISTRAL,
-    }),
-    new ReflectionWorkflow({
-      reflectionModel: MISTRAL,
-      commandModel: MISTRAL,
-    }),
-    new SimpleWorkflow({
-      commandModel: DEEPSEEK_R1,
-    }),
-    new ReflectionWorkflow({
-      reflectionModel: DEEPSEEK_R1,
-      commandModel: DEEPSEEK_R1,
-    }),
-    new SimpleWorkflow({
-      commandModel: DEEPSEEK_R1_14B,
-    }),
-    new ReflectionWorkflow({
-      reflectionModel: ollama("deepseek-r1:14b"),
-      commandModel: ollama("deepseek-r1:14b"),
-    }),
-
-    // Custom configurations
+    // // Ollama models
     // new SimpleWorkflow({
-    //   maxIterations: 50,
-    //   displayName: "Simple Workflow (Short Run)",
+    //   commandModel: MISTRAL,
     // }),
-    // new ReflectionWorkflow({
-    //   dialogueLimit: 100,
-    //   maxIterations: 150,
-    //   displayName: "Reflection Workflow (Extended Run)",
+    // new SimpleWorkflow({
+    //   commandModel: DEEPSEEK_R1_14B,
+    // }),
+
+    // // OpenAI models
+    // new SimpleWorkflow({
+    //   commandModel: GPT_4O,
+    // }),
+    // new SimpleWorkflow({
+    //   commandModel: GPT_4O_MINI,
+    // }),
+    // new SimpleWorkflow({
+    //   commandModel: GPT_O3_MINI,
+    // }),
+
+    // // Anthropic models
+    new SimpleWorkflow({
+      commandModel: CLAUDE_3_HAIKU,
+    }),
+    // new SimpleWorkflow({
+    //   commandModel: CLAUDE_3_SONNET,
+    // }),
+
+    // Grok models
+    // new SimpleWorkflow({
+    //   commandModel: GROK_2,
+    // }),
+
+    // Local models
+    new SimpleWorkflow({
+      commandModel: MISTRAL,
+    }),
+    // new SimpleWorkflow({
+    //   commandModel: DEEPSEEK_R1_14B,
     // }),
   ];
 
@@ -117,6 +142,41 @@ ${WorkflowRunner.formatResultsTable(results)}`);
     current.executionTimeMs < best.executionTimeMs ? current : best
   );
 
+  // Find the most token-efficient workflow (highest score per token)
+  const mostTokenEfficient = results.reduce((best, current) => {
+    // Avoid division by zero
+    if (current.usage.totalTokens === 0) return best;
+    if (best.usage.totalTokens === 0) return current;
+
+    return current.score / current.usage.totalTokens >
+      best.score / best.usage.totalTokens
+      ? current
+      : best;
+  });
+
+  // Find the most cost-efficient workflow (highest score per dollar)
+  const mostCostEfficient = results.reduce((best, current) => {
+    // Avoid division by zero
+    if (current.estimatedCost === 0) return best;
+    if (best.estimatedCost === 0) return current;
+
+    return current.score / current.estimatedCost >
+      best.score / best.estimatedCost
+      ? current
+      : best;
+  });
+
+  // Calculate total token usage and cost
+  const totalTokens = results.reduce(
+    (sum, result) => sum + result.usage.totalTokens,
+    0
+  );
+
+  const totalCost = results.reduce(
+    (sum, result) => sum + result.estimatedCost,
+    0
+  );
+
   mainLogger.info("\nResults Summary:");
   mainLogger.info("==============================");
   mainLogger.info(
@@ -125,10 +185,18 @@ ${WorkflowRunner.formatResultsTable(results)}`);
   mainLogger.info(
     `Most efficient workflow (score/moves): ${mostEfficient.displayName}`
   );
+  mainLogger.info(
+    `Most token-efficient workflow (score/token): ${mostTokenEfficient.displayName}`
+  );
+  mainLogger.info(
+    `Most cost-efficient workflow (score/$): ${mostCostEfficient.displayName}`
+  );
   mainLogger.info(`Fastest workflow: ${fastest.displayName}`);
   mainLogger.info(
     `Total execution time: ${totalTime}ms (${(totalTime / 1000).toFixed(2)}s)`
   );
+  mainLogger.info(`Total tokens used: ${totalTokens.toLocaleString()}`);
+  mainLogger.info(`Total estimated cost: $${totalCost.toFixed(6)}`);
 }
 
 main().catch(console.error);

@@ -66,6 +66,7 @@ export class ReflectionWorkflow extends BaseWorkflow {
         },
       ],
     });
+    this.trackModelUsage(this.commandModel.modelId, result.usage);
     dialogue.assistant(result.text);
     return result.text;
   }
@@ -88,6 +89,7 @@ export class ReflectionWorkflow extends BaseWorkflow {
         },
       ],
     });
+    this.trackModelUsage(this.reflectionModel.modelId, result.usage);
     dialogue.assistant(result.text);
     return result.text;
   }
