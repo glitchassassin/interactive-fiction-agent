@@ -7,12 +7,14 @@ import { ollama } from "ollama-ai-provider";
 import { openai } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { xai } from "@ai-sdk/xai";
+import { SimpleReasoningWorkflow } from "./workflows/simple_reasoning.js";
 
 // Load environment variables
 dotenv.config();
 
 // Ollama models
 const MISTRAL = ollama("mistral");
+const DEEPSEEK_R1 = ollama("deepseek-r1");
 const DEEPSEEK_R1_14B = ollama("deepseek-r1:14b");
 
 // OpenAI models
@@ -36,14 +38,6 @@ const GROK_2 = xai("grok-2-1212");
 async function main() {
   // Create workflow instances with different configurations
   const workflows = [
-    // // Ollama models
-    // new SimpleWorkflow({
-    //   commandModel: MISTRAL,
-    // }),
-    // new SimpleWorkflow({
-    //   commandModel: DEEPSEEK_R1_14B,
-    // }),
-
     // // OpenAI models
     // new SimpleWorkflow({
     //   commandModel: GPT_4O,
@@ -56,8 +50,15 @@ async function main() {
     // }),
 
     // // Anthropic models
-    new SimpleWorkflow({
-      commandModel: CLAUDE_3_HAIKU,
+    // new SimpleWorkflow({
+    //   commandModel: CLAUDE_3_HAIKU,
+    // }),
+    // new SimpleReasoningWorkflow({
+    //   commandModel: CLAUDE_3_HAIKU,
+    // }),
+    new ReflectionWorkflow({
+      commandModel: MISTRAL,
+      reflectionModel: CLAUDE_3_HAIKU,
     }),
     // new SimpleWorkflow({
     //   commandModel: CLAUDE_3_SONNET,
@@ -69,11 +70,23 @@ async function main() {
     // }),
 
     // Local models
-    new SimpleWorkflow({
-      commandModel: MISTRAL,
-    }),
+    // new SimpleWorkflow({
+    //   commandModel: MISTRAL,
+    // }),
+    // new SimpleReasoningWorkflow({
+    //   commandModel: MISTRAL,
+    //   dialogueLimit: 5,
+    // }),
     // new SimpleWorkflow({
     //   commandModel: DEEPSEEK_R1_14B,
+    // }),
+    // new SimpleReasoningWorkflow({
+    //   commandModel: DEEPSEEK_R1_14B,
+    // }),
+    // new ReflectionWorkflow({
+    //   commandModel: MISTRAL,
+    //   reflectionModel: DEEPSEEK_R1_14B,
+    //   dialogueLimit: 10,
     // }),
   ];
 
