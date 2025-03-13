@@ -57,7 +57,7 @@ export class ReflectionWorkflow extends BaseWorkflow {
     const result = await generateText({
       model: this.commandModel,
       messages: [
-        ...dialogue.messages.slice(-10),
+        ...dialogue.messages.slice(-2),
         {
           role: "user",
           content: `Based on the context, pick ONE command to execute (like 'inventory', 'look', 'go north', etc.).
@@ -80,17 +80,27 @@ export class ReflectionWorkflow extends BaseWorkflow {
     const result = await generateText({
       model: this.reflectionModel,
       system: genericSolverSystemPrompt,
-      messages: [
-        ...dialogue.messages,
-        {
-          role: "user",
-          content:
-            "Reflect on the game progress so far using a chain-of-thought approach and decide what to try next. Be concise.",
-        },
-      ],
+      messages: dialogue.messages,
     });
     this.trackModelUsage(this.reflectionModel.modelId, result.usage);
-    dialogue.assistant(result.text);
-    return result.text;
+
+    // Extract thinking part and clean response
+    const thinkMatch = result.text.match(/<think>([\s\S]*?)<\/think>/);
+    const thinking = thinkMatch ? thinkMatch[1].trim() : "";
+
+    // Remove the thinking part from the response
+    let cleanedText = result.text;
+    if (thinkMatch) {
+      cleanedText = result.text.replace(/<think>[\s\S]*?<\/think>/, "").trim();
+    }
+
+    // Log the thinking part as info
+    if (thinking) {
+      this.logger?.info("<think>\n" + thinking + "\n</think>");
+    }
+
+    // Only add the cleaned text to the dialogue
+    dialogue.assistant(cleanedText);
+    return cleanedText;
   }
 }
