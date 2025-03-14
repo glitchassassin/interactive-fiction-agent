@@ -9,6 +9,8 @@
     "start": "tsx src/index.ts",
     "start:parallel": "tsx src/index.ts --parallel",
     "start:parallel:2": "tsx src/index.ts --parallel --max-concurrent 2",
+    "agent": "tsx src/index.ts --agent",
+    "agent:interactive": "tsx src/index.ts --agent --interactive",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

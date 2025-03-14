@@ -1,13 +1,20 @@
 import dotenv from "dotenv";
 import { SimpleWorkflow } from "./workflows/simple.js";
 import { ReflectionWorkflow } from "./workflows/simple_reflection.js";
-import { WorkflowRunner } from "./runner.js";
+import { WorkflowRunner } from "./runners/workflow.js";
+import { AgentRunner } from "./runners/agent.js";
 import winston from "winston";
 import { ollama } from "ollama-ai-provider";
 import { openai } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { xai } from "@ai-sdk/xai";
 import { SimpleReasoningWorkflow } from "./workflows/simple_reasoning.js";
+import { AgentBasedWorkflow } from "./workflows/agent-based.js";
+import { AgentOrchestrator } from "./agents/agent-orchestrator.js";
+import { MemoryAgent } from "./agents/memory/memory-agent.js";
+import { GoalAgent } from "./agents/tools/goal-agent.js";
+import { PuzzleSolverAgent } from "./agents/tools/puzzle-solver.js";
+import { MapAgent } from "./agents/tools/map-agent.js";
 
 // Load environment variables
 dotenv.config();
@@ -35,7 +42,7 @@ const CLAUDE_3_SONNET = anthropic("claude-3-7-sonnet-20250219");
 // $2.00 / $10.00 per million tokens in/out
 const GROK_2 = xai("grok-2-1212");
 
-async function main() {
+async function runWorkflows() {
   // Create workflow instances with different configurations
   const workflows = [
     // // OpenAI models
@@ -88,6 +95,18 @@ async function main() {
     //   reflectionModel: DEEPSEEK_R1_14B,
     //   dialogueLimit: 10,
     // }),
+
+    // Agent-based workflows
+    new AgentBasedWorkflow({
+      mainModel: CLAUDE_3_HAIKU,
+      memoryModel: MISTRAL,
+      goalModel: MISTRAL,
+      puzzleModel: MISTRAL,
+      mapModel: MISTRAL,
+    }),
+    new AgentBasedWorkflow({
+      mainModel: CLAUDE_3_SONNET,
+    }),
   ];
 
   // Create a logger for the main application
@@ -210,6 +229,95 @@ ${WorkflowRunner.formatResultsTable(results)}`);
   );
   mainLogger.info(`Total tokens used: ${totalTokens.toLocaleString()}`);
   mainLogger.info(`Total estimated cost: $${totalCost.toFixed(6)}`);
+}
+
+async function runAgentOrchestrator() {
+  // Create a logger for the main application
+  const mainLogger = winston.createLogger({
+    level: "info",
+    format: winston.format.combine(
+      winston.format.colorize(),
+      winston.format.printf(({ level, message }) => {
+        return `[Main] ${level}: ${message}`;
+      })
+    ),
+    transports: [new winston.transports.Console()],
+  });
+
+  // Parse command line arguments
+  const args = process.argv.slice(2);
+  const interactive = args.includes("--interactive");
+
+  // Create specialized agents
+  const memoryAgent = new MemoryAgent({
+    model: MISTRAL,
+    displayName: "Memory Agent",
+  });
+
+  const goalAgent = new GoalAgent({
+    model: MISTRAL,
+    displayName: "Goal Agent",
+  });
+
+  const puzzleAgent = new PuzzleSolverAgent({
+    model: MISTRAL,
+    displayName: "Puzzle Agent",
+  });
+
+  const mapAgent = new MapAgent({
+    model: MISTRAL,
+    displayName: "Map Agent",
+  });
+
+  // Create the agent orchestrator
+  const orchestrator = new AgentOrchestrator({
+    model: CLAUDE_3_SONNET,
+    memoryModel: MISTRAL,
+    goalModel: MISTRAL,
+    puzzleModel: MISTRAL,
+    mapModel: MISTRAL,
+  });
+
+  // Create the agent runner
+  const runner = new AgentRunner(orchestrator, {
+    logDir: "./logs",
+    saveLogs: true,
+    logLevel: "info",
+    maxIterations: 100,
+    interactive,
+  });
+
+  // Run the agent
+  const startTime = Date.now();
+  const result = await runner.run();
+  const totalTime = Date.now() - startTime;
+
+  // Display results
+  mainLogger.info("\nAgent Run Results:");
+  mainLogger.info("==============================");
+  mainLogger.info(`Agent: ${result.agentName}`);
+  mainLogger.info(`Score: ${result.score}`);
+  mainLogger.info(`Moves: ${result.moves}`);
+  mainLogger.info(`Completed: ${result.completed ? "Yes" : "No"}`);
+  mainLogger.info(
+    `Execution time: ${totalTime}ms (${(totalTime / 1000).toFixed(2)}s)`
+  );
+  mainLogger.info(
+    `Total tokens used: ${result.usage.totalTokens.toLocaleString()}`
+  );
+  mainLogger.info(`Estimated cost: $${result.estimatedCost.toFixed(6)}`);
+}
+
+async function main() {
+  // Parse command line arguments
+  const args = process.argv.slice(2);
+  const runMode = args.includes("--agent") ? "agent" : "workflow";
+
+  if (runMode === "agent") {
+    await runAgentOrchestrator();
+  } else {
+    await runWorkflows();
+  }
 }
 
 main().catch(console.error);

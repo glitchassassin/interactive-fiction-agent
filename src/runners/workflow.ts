@@ -5,7 +5,7 @@ import {
   BaseWorkflow,
   LanguageModelUsage,
   DEFAULT_MODEL_PRICING,
-} from "./workflows/base.js";
+} from "../workflows/base.js";
 
 /**
  * Result of a workflow run including performance metrics
