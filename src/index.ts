@@ -1,26 +1,33 @@
 import dotenv from "dotenv";
-import { SimpleWorkflow } from "./workflows/simple.js";
-import { ReflectionWorkflow } from "./workflows/simple_reflection.js";
-import { WorkflowRunner } from "./runners/workflow.js";
-import { AgentRunner } from "./runners/agent.js";
-import winston from "winston";
 import { ollama } from "ollama-ai-provider";
 import { openai } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { xai } from "@ai-sdk/xai";
-import { SimpleReasoningWorkflow } from "./workflows/simple_reasoning.js";
-import { AgentBasedWorkflow } from "./workflows/agent-based.js";
-import { AgentOrchestrator } from "./agents/agent-orchestrator.js";
-import { MemoryAgent } from "./agents/memory/memory-agent.js";
-import { GoalAgent } from "./agents/tools/goal-agent.js";
-import { PuzzleSolverAgent } from "./agents/tools/puzzle-solver.js";
-import { MapAgent } from "./agents/tools/map-agent.js";
+import { Command } from "commander";
+import winston from "winston";
+import { Agent } from "./agents/Agent.js";
+import { RandomAgent } from "./agents/RandomAgent.js";
+import { SlowAgent } from "./agents/SlowAgent.js";
+import { formatDuration, displayTable } from "./utils/index.js";
 
 // Load environment variables
 dotenv.config();
 
+// Configure logger
+const logger = winston.createLogger({
+  level: "info",
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.printf(({ level, message, timestamp }) => {
+      return `${timestamp} ${level}: ${message}`;
+    })
+  ),
+  transports: [new winston.transports.Console()],
+});
+
 // Ollama models
 const MISTRAL = ollama("mistral");
+const GEMMA_3 = ollama("gemma3:12b");
 const DEEPSEEK_R1 = ollama("deepseek-r1");
 const DEEPSEEK_R1_14B = ollama("deepseek-r1:14b");
 
@@ -42,282 +49,129 @@ const CLAUDE_3_SONNET = anthropic("claude-3-7-sonnet-20250219");
 // $2.00 / $10.00 per million tokens in/out
 const GROK_2 = xai("grok-2-1212");
 
-async function runWorkflows() {
-  // Create workflow instances with different configurations
-  const workflows = [
-    // // OpenAI models
-    // new SimpleWorkflow({
-    //   commandModel: GPT_4O,
-    // }),
-    // new SimpleWorkflow({
-    //   commandModel: GPT_4O_MINI,
-    // }),
-    // new SimpleWorkflow({
-    //   commandModel: GPT_O3_MINI,
-    // }),
+// Initialize test agents
+const agents: Agent[] = [new RandomAgent(), new SlowAgent()];
 
-    // // Anthropic models
-    // new SimpleWorkflow({
-    //   commandModel: CLAUDE_3_HAIKU,
-    // }),
-    // new SimpleReasoningWorkflow({
-    //   commandModel: CLAUDE_3_HAIKU,
-    // }),
-    new ReflectionWorkflow({
-      commandModel: MISTRAL,
-      reflectionModel: CLAUDE_3_HAIKU,
-    }),
-    // new SimpleWorkflow({
-    //   commandModel: CLAUDE_3_SONNET,
-    // }),
+/**
+ * Run agents with specified concurrency
+ * @param agents The agents to run
+ * @param maxConcurrent Maximum number of agents to run concurrently
+ */
+async function runAgents(
+  agents: Agent[],
+  maxConcurrent: number
+): Promise<void> {
+  logger.info(
+    `Running ${agents.length} agents with max ${maxConcurrent} concurrent`
+  );
 
-    // Grok models
-    // new SimpleWorkflow({
-    //   commandModel: GROK_2,
-    // }),
-
-    // Local models
-    // new SimpleWorkflow({
-    //   commandModel: MISTRAL,
-    // }),
-    // new SimpleReasoningWorkflow({
-    //   commandModel: MISTRAL,
-    //   dialogueLimit: 5,
-    // }),
-    // new SimpleWorkflow({
-    //   commandModel: DEEPSEEK_R1_14B,
-    // }),
-    // new SimpleReasoningWorkflow({
-    //   commandModel: DEEPSEEK_R1_14B,
-    // }),
-    // new ReflectionWorkflow({
-    //   commandModel: MISTRAL,
-    //   reflectionModel: DEEPSEEK_R1_14B,
-    //   dialogueLimit: 10,
-    // }),
-
-    // Agent-based workflows
-    new AgentBasedWorkflow({
-      mainModel: CLAUDE_3_HAIKU,
-      memoryModel: MISTRAL,
-      goalModel: MISTRAL,
-      puzzleModel: MISTRAL,
-      mapModel: MISTRAL,
-    }),
-    new AgentBasedWorkflow({
-      mainModel: CLAUDE_3_SONNET,
-    }),
-  ];
-
-  // Create a logger for the main application
-  const mainLogger = winston.createLogger({
-    level: "info",
-    format: winston.format.combine(
-      winston.format.colorize(),
-      winston.format.printf(({ level, message }) => {
-        return `[Main] ${level}: ${message}`;
-      })
-    ),
-    transports: [new winston.transports.Console()],
-  });
-
-  // Parse command line arguments
-  const args = process.argv.slice(2);
-  const parallel = args.includes("--parallel");
-  const maxConcurrent = args.includes("--max-concurrent")
-    ? parseInt(args[args.indexOf("--max-concurrent") + 1], 10)
-    : 0;
-
-  mainLogger.info(`Execution mode: ${parallel ? "Parallel" : "Sequential"}`);
-  if (parallel && maxConcurrent > 0) {
-    mainLogger.info(`Max concurrent workflows: ${maxConcurrent}`);
-  }
-
-  // Create a workflow runner with logging options
-  const runner = new WorkflowRunner(workflows, {
-    logDir: "./logs",
-    saveLogs: true,
-    logLevel: "info",
-    parallel,
-    maxConcurrent,
-  });
-
-  // Run all workflows
   const startTime = Date.now();
-  const results = await runner.runAll();
-  const totalTime = Date.now() - startTime;
-
-  // Display results table
-  mainLogger.info(`
-Workflow Comparison Results:
-==============================
-${WorkflowRunner.formatResultsTable(results)}`);
-
-  // Find the best performing workflow by score
-  const bestByScore = results.reduce((best, current) =>
-    current.score > best.score ? current : best
-  );
-
-  // Find the most efficient workflow (highest score per move)
-  const mostEfficient = results.reduce((best, current) => {
-    // Avoid division by zero
-    if (current.moves === 0) return best;
-    if (best.moves === 0) return current;
-
-    return current.score / current.moves > best.score / best.moves
-      ? current
-      : best;
-  });
-
-  // Find the fastest workflow
-  const fastest = results.reduce((best, current) =>
-    current.executionTimeMs < best.executionTimeMs ? current : best
-  );
-
-  // Find the most token-efficient workflow (highest score per token)
-  const mostTokenEfficient = results.reduce((best, current) => {
-    // Avoid division by zero
-    if (current.usage.totalTokens === 0) return best;
-    if (best.usage.totalTokens === 0) return current;
-
-    return current.score / current.usage.totalTokens >
-      best.score / best.usage.totalTokens
-      ? current
-      : best;
-  });
-
-  // Find the most cost-efficient workflow (highest score per dollar)
-  const mostCostEfficient = results.reduce((best, current) => {
-    // Avoid division by zero
-    if (current.estimatedCost === 0) return best;
-    if (best.estimatedCost === 0) return current;
-
-    return current.score / current.estimatedCost >
-      best.score / best.estimatedCost
-      ? current
-      : best;
-  });
-
-  // Calculate total token usage and cost
-  const totalTokens = results.reduce(
-    (sum, result) => sum + result.usage.totalTokens,
-    0
-  );
-
-  const totalCost = results.reduce(
-    (sum, result) => sum + result.estimatedCost,
-    0
-  );
-
-  mainLogger.info("\nResults Summary:");
-  mainLogger.info("==============================");
-  mainLogger.info(
-    `Best performing workflow by score: ${bestByScore.displayName}`
-  );
-  mainLogger.info(
-    `Most efficient workflow (score/moves): ${mostEfficient.displayName}`
-  );
-  mainLogger.info(
-    `Most token-efficient workflow (score/token): ${mostTokenEfficient.displayName}`
-  );
-  mainLogger.info(
-    `Most cost-efficient workflow (score/$): ${mostCostEfficient.displayName}`
-  );
-  mainLogger.info(`Fastest workflow: ${fastest.displayName}`);
-  mainLogger.info(
-    `Total execution time: ${totalTime}ms (${(totalTime / 1000).toFixed(2)}s)`
-  );
-  mainLogger.info(`Total tokens used: ${totalTokens.toLocaleString()}`);
-  mainLogger.info(`Total estimated cost: $${totalCost.toFixed(6)}`);
+  for (let i = 0; i < agents.length; i += maxConcurrent) {
+    const batch = agents.slice(i, i + maxConcurrent);
+    await Promise.all(
+      batch.map(async (agent) => {
+        const agentStartTime = Date.now();
+        await agent.run();
+        const agentEndTime = Date.now();
+        const duration = agentEndTime - agentStartTime;
+        logger.info(
+          `Agent ${agent.name} completed in ${formatDuration(
+            duration
+          )} with score ${agent.score} and ${agent.moves} moves`
+        );
+      })
+    );
+  }
+  const endTime = Date.now();
+  const totalDuration = endTime - startTime;
+  logger.info(`All agents completed in ${formatDuration(totalDuration)}`);
 }
 
-async function runAgentOrchestrator() {
-  // Create a logger for the main application
-  const mainLogger = winston.createLogger({
-    level: "info",
-    format: winston.format.combine(
-      winston.format.colorize(),
-      winston.format.printf(({ level, message }) => {
-        return `[Main] ${level}: ${message}`;
-      })
-    ),
-    transports: [new winston.transports.Console()],
-  });
+/**
+ * Print a summary report of all agents' performance
+ * @param agents The agents that were run
+ * @param totalRuntime The total runtime in milliseconds
+ */
+function printSummaryReport(agents: Agent[], totalRuntime: number): void {
+  logger.info("=== Summary Report ===");
+  logger.info(`Total runtime: ${formatDuration(totalRuntime)}`);
 
-  // Parse command line arguments
-  const args = process.argv.slice(2);
-  const interactive = args.includes("--interactive");
+  // Calculate averages
+  const totalScore = agents.reduce((sum, agent) => sum + agent.score, 0);
+  const totalMoves = agents.reduce((sum, agent) => sum + agent.moves, 0);
+  const avgScore = totalScore / agents.length;
+  const avgMoves = totalMoves / agents.length;
 
-  // Create specialized agents
-  const memoryAgent = new MemoryAgent({
-    model: MISTRAL,
-    displayName: "Memory Agent",
-  });
+  logger.info(`Average score: ${avgScore.toFixed(2)}`);
+  logger.info(`Average moves: ${avgMoves.toFixed(2)}`);
 
-  const goalAgent = new GoalAgent({
-    model: MISTRAL,
-    displayName: "Goal Agent",
-  });
+  // Prepare data for table display
+  const tableData = agents.map((agent) => ({
+    Name: agent.name,
+    Score: agent.score,
+    Moves: agent.moves,
+  }));
 
-  const puzzleAgent = new PuzzleSolverAgent({
-    model: MISTRAL,
-    displayName: "Puzzle Agent",
-  });
-
-  const mapAgent = new MapAgent({
-    model: MISTRAL,
-    displayName: "Map Agent",
-  });
-
-  // Create the agent orchestrator
-  const orchestrator = new AgentOrchestrator({
-    model: CLAUDE_3_SONNET,
-    memoryModel: MISTRAL,
-    goalModel: MISTRAL,
-    puzzleModel: MISTRAL,
-    mapModel: MISTRAL,
-  });
-
-  // Create the agent runner
-  const runner = new AgentRunner(orchestrator, {
-    logDir: "./logs",
-    saveLogs: true,
-    logLevel: "info",
-    maxIterations: 100,
-    interactive,
-  });
-
-  // Run the agent
-  const startTime = Date.now();
-  const result = await runner.run();
-  const totalTime = Date.now() - startTime;
-
-  // Display results
-  mainLogger.info("\nAgent Run Results:");
-  mainLogger.info("==============================");
-  mainLogger.info(`Agent: ${result.agentName}`);
-  mainLogger.info(`Score: ${result.score}`);
-  mainLogger.info(`Moves: ${result.moves}`);
-  mainLogger.info(`Completed: ${result.completed ? "Yes" : "No"}`);
-  mainLogger.info(
-    `Execution time: ${totalTime}ms (${(totalTime / 1000).toFixed(2)}s)`
-  );
-  mainLogger.info(
-    `Total tokens used: ${result.usage.totalTokens.toLocaleString()}`
-  );
-  mainLogger.info(`Estimated cost: $${result.estimatedCost.toFixed(6)}`);
+  // Print individual agent results using our custom table display
+  logger.info("\nIndividual Agent Results:");
+  displayTable(tableData);
 }
 
 async function main() {
-  // Parse command line arguments
-  const args = process.argv.slice(2);
-  const runMode = args.includes("--agent") ? "agent" : "workflow";
+  // Create command-line interface
+  const program = new Command();
 
-  if (runMode === "agent") {
-    await runAgentOrchestrator();
-  } else {
-    await runWorkflows();
+  program
+    .name("interactive-fiction-agent")
+    .description("Run AI agents for interactive fiction games")
+    .version("1.0.0");
+
+  program
+    .option("-a, --agent <names...>", "specify agent(s) to run by name")
+    .option(
+      "-m, --max-concurrent <number>",
+      "maximum number of agents to run concurrently (defaults to 1, which runs in series)",
+      (value) => parseInt(value),
+      1
+    )
+    .option(
+      "-l, --log-level <level>",
+      "set log level (error, warn, info, debug)",
+      "info"
+    );
+
+  program.parse(process.argv);
+
+  const options = program.opts();
+
+  // Set log level
+  logger.level = options.logLevel;
+
+  // Load agents
+  let selectedAgents: Agent[] = agents.filter((agent) =>
+    options.agent ? options.agent.includes(agent.name) : true
+  );
+
+  if (selectedAgents.length === 0) {
+    logger.error("No agents found or specified");
+    process.exit(1);
   }
+
+  logger.info(`Loaded ${selectedAgents.length} agent(s)`);
+
+  // Run agents
+  const startTime = Date.now();
+
+  await runAgents(selectedAgents, options.maxConcurrent);
+
+  const endTime = Date.now();
+  const totalRuntime = endTime - startTime;
+
+  // Print summary report
+  printSummaryReport(selectedAgents, totalRuntime);
 }
 
-main().catch(console.error);
+main().catch((error) => {
+  logger.error("An error occurred:", error);
+  process.exit(1);
+});
