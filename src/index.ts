@@ -1,17 +1,37 @@
 import dotenv from "dotenv";
-import { ollama } from "ollama-ai-provider";
-import { openai } from "@ai-sdk/openai";
-import { anthropic } from "@ai-sdk/anthropic";
-import { xai } from "@ai-sdk/xai";
 import { Command } from "commander";
 import winston from "winston";
 import { Agent } from "./agents/Agent.js";
-import { RandomAgent } from "./agents/RandomAgent.js";
-import { SlowAgent } from "./agents/SlowAgent.js";
+import { SimpleAIAgent } from "./agents/SimpleAIAgent.js";
 import { formatDuration, displayTable } from "./utils/index.js";
+import {
+  CLAUDE_3_HAIKU,
+  DEEPSEEK_R1_14B,
+  GEMMA_3_ENHANCED,
+  MISTRAL,
+  GPT_4O_MINI,
+  GPT_O3_MINI,
+  GROK_2,
+  CLAUDE_3_SONNET,
+  GPT_4O,
+  DEEPSEEK_R1_TOOL_CALLING,
+} from "./models.js";
 
 // Load environment variables
 dotenv.config();
+
+// Initialize test agents
+const agents: Agent[] = [
+  new SimpleAIAgent(), // Use default MISTRAL model
+  new SimpleAIAgent({ model: CLAUDE_3_HAIKU }),
+  new SimpleAIAgent({ model: GEMMA_3_ENHANCED }),
+  new SimpleAIAgent({ model: CLAUDE_3_SONNET }),
+  new SimpleAIAgent({ model: DEEPSEEK_R1_TOOL_CALLING }),
+  new SimpleAIAgent({ model: GROK_2 }),
+  // new SimpleAIAgent({ model: GPT_4O_MINI }),
+  // new SimpleAIAgent({ model: GPT_4O }),
+  // new SimpleAIAgent({ model: GPT_O3_MINI }),
+];
 
 // Configure logger
 const logger = winston.createLogger({
@@ -24,33 +44,6 @@ const logger = winston.createLogger({
   ),
   transports: [new winston.transports.Console()],
 });
-
-// Ollama models
-const MISTRAL = ollama("mistral");
-const GEMMA_3 = ollama("gemma3:12b");
-const DEEPSEEK_R1 = ollama("deepseek-r1");
-const DEEPSEEK_R1_14B = ollama("deepseek-r1:14b");
-
-// OpenAI models
-// $2.50 / $10.00 per million tokens in/out
-const GPT_4O = openai("gpt-4o");
-// $0.150 / $0.600 per million tokens in/out
-const GPT_4O_MINI = openai("gpt-4o-mini");
-// $1.10 / $4.40 per million tokens in/out
-const GPT_O3_MINI = openai("o3-mini");
-
-// Anthropic models
-// $0.80 / $4.00 per million tokens in/out
-const CLAUDE_3_HAIKU = anthropic("claude-3-5-haiku-20241022");
-// $3.00 / $15.00	 per million tokens in/out
-const CLAUDE_3_SONNET = anthropic("claude-3-7-sonnet-20250219");
-
-// Grok models
-// $2.00 / $10.00 per million tokens in/out
-const GROK_2 = xai("grok-2-1212");
-
-// Initialize test agents
-const agents: Agent[] = [new RandomAgent(), new SlowAgent()];
 
 /**
  * Run agents with specified concurrency
@@ -70,6 +63,7 @@ async function runAgents(
     const batch = agents.slice(i, i + maxConcurrent);
     await Promise.all(
       batch.map(async (agent) => {
+        logger.info(`Starting ${agent.name}`);
         const agentStartTime = Date.now();
         await agent.run();
         const agentEndTime = Date.now();

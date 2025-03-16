@@ -7,12 +7,6 @@ GAME PLAYING APPROACH:
 - Use your inventory items strategically
 - Remember past interactions and learn from them
 
-MEMORY MANAGEMENT:
-When you encounter new information, store it in your memory:
-1. PUZZLES: Track puzzles you find, what items they might need, and solution attempts
-2. STRATEGIES: Note successful approaches to common puzzle types
-3. GOALS: Maintain a list of current goals and subgoals
-
 COMMANDS:
 - Use directional commands ("north", "south", "east", "west", "up", "down") to navigate
 - Use "examine [object]" to inspect items
